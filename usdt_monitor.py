@@ -19,7 +19,9 @@ SOLANA_RPC_URL = "https://api.mainnet-beta.solana.com"
 MONITORED_ADDRESS = "9ApaAe39Z8GEXfqm7F7HL545N4J4tN7RhF8FhS88pRNp"
 USDC_MINT_ADDRESS = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"  # USDC на Solana
 CHECK_INTERVAL = 300  # 5 минут в секундах
-DISCORD_WEBHOOK_URL = "https://discord.com/api/webhooks/1349782554907119706/O0TPa8j-EvKpZOz1Uos0SMGQ4hOJKFpKyq0O8g-S1KZuzeEP06FrPPhvz_iAkXXvU14e"
+DISCORD_WEBHOOK_URL = ""
+# Дата окончания: 10 января 2026 года 16:00 UTC
+END_DATE = datetime(2026, 1, 10, 16, 0, 0)
 
 # Глобальные переменные для отслеживания
 total_usdc_received = 0.0
@@ -142,12 +144,16 @@ def get_statistics_data() -> dict:
     last_5_min = get_received_in_period(300)  # 5 минут
     last_15_min = get_received_in_period(900) if elapsed_seconds >= 900 else None  # 15 минут
     last_hour = get_received_in_period(3600) if elapsed_seconds >= 3600 else None  # 1 час
+    last_6h = get_received_in_period(21600) if elapsed_seconds >= 21600 else None  # 6 часов
+    last_12h = get_received_in_period(43200) if elapsed_seconds >= 43200 else None  # 12 часов
     last_24h = get_received_in_period(86400) if elapsed_seconds >= 86400 else None  # 24 часа
     
     return {
         "last_5_min": last_5_min,
         "last_15_min": last_15_min,
         "last_hour": last_hour,
+        "last_6h": last_6h,
+        "last_12h": last_12h,
         "last_24h": last_24h
     }
 
@@ -168,11 +174,76 @@ def print_statistics():
     if stats['last_hour'] is not None:
         print(f"   За последний час:         {format_number(stats['last_hour'])} USDC")
     
+    if stats['last_6h'] is not None:
+        print(f"   За последние 6 часов:    {format_number(stats['last_6h'])} USDC")
+    
+    if stats['last_12h'] is not None:
+        print(f"   За последние 12 часов:   {format_number(stats['last_12h'])} USDC")
+    
     if stats['last_24h'] is not None:
         print(f"   За последние сутки:       {format_number(stats['last_24h'])} USDC")
     
     print(f"   С начала мониторинга:     {format_number(total_usdc_received)} USDC")
     print("─" * 60)
+
+
+def format_time_remaining(target_date: datetime) -> str:
+    """
+    Форматирует оставшееся время до целевой даты в читаемый вид
+    Формат: "X дней Y часов Z минут W секунд"
+    """
+    now = datetime.now()
+    
+    # Если дата уже прошла
+    if target_date <= now:
+        return "Время истекло"
+    
+    # Вычисляем разницу
+    delta = target_date - now
+    total_seconds = int(delta.total_seconds())
+    
+    # Разбиваем на компоненты
+    days = total_seconds // 86400
+    hours = (total_seconds % 86400) // 3600
+    minutes = (total_seconds % 3600) // 60
+    seconds = total_seconds % 60
+    
+    # Формируем строку, показывая только ненулевые компоненты
+    parts = []
+    
+    if days > 0:
+        if days == 1:
+            parts.append("1 день")
+        elif days in [2, 3, 4]:
+            parts.append(f"{days} дня")
+        else:
+            parts.append(f"{days} дней")
+    
+    if hours > 0:
+        if hours == 1:
+            parts.append("1 час")
+        elif hours in [2, 3, 4]:
+            parts.append(f"{hours} часа")
+        else:
+            parts.append(f"{hours} часов")
+    
+    if minutes > 0:
+        if minutes == 1:
+            parts.append("1 минута")
+        elif minutes in [2, 3, 4]:
+            parts.append(f"{minutes} минуты")
+        else:
+            parts.append(f"{minutes} минут")
+    
+    if seconds > 0 or len(parts) == 0:
+        if seconds == 1:
+            parts.append("1 секунда")
+        elif seconds in [2, 3, 4]:
+            parts.append(f"{seconds} секунды")
+        else:
+            parts.append(f"{seconds} секунд")
+    
+    return " ".join(parts)
 
 
 def send_statistics_to_discord(current_balance: float, current_time_str: str):
@@ -181,16 +252,24 @@ def send_statistics_to_discord(current_balance: float, current_time_str: str):
     """
     stats = get_statistics_data()
     
+    # Получаем оставшееся время в читаемом формате
+    time_remaining = format_time_remaining(END_DATE)
+    
     # Формируем поля для embed
     fields = [
         {
-            "name": "💰 Текущий баланс",
+            "name": "💰 Всего собрано",
             "value": f"{format_number(current_balance)} USDC",
             "inline": False
         },
         {
             "name": "⏱️ За последние 5 минут",
             "value": f"{format_number(stats['last_5_min'])} USDC",
+            "inline": False
+        },
+        {
+            "name": "⏰ До окончания",
+            "value": time_remaining,
             "inline": False
         }
     ]
@@ -210,6 +289,20 @@ def send_statistics_to_discord(current_balance: float, current_time_str: str):
             "inline": False
         })
     
+    if stats['last_6h'] is not None:
+        fields.append({
+            "name": "⏱️ За последние 6 часов",
+            "value": f"{format_number(stats['last_6h'])} USDC",
+            "inline": False
+        })
+    
+    if stats['last_12h'] is not None:
+        fields.append({
+            "name": "⏱️ За последние 12 часов",
+            "value": f"{format_number(stats['last_12h'])} USDC",
+            "inline": False
+        })
+    
     if stats['last_24h'] is not None:
         fields.append({
             "name": "⏱️ За последние сутки",
@@ -219,7 +312,7 @@ def send_statistics_to_discord(current_balance: float, current_time_str: str):
     
     # Формируем embed для Discord
     embed = {
-        "title": "📊 Статистика сбора USDC",
+        "title": "Ranger Finance сбор USDC",
         "color": 0x3498db,  # Синий цвет
         "fields": fields,
         "footer": {
@@ -276,7 +369,7 @@ def monitor_usdc_transactions():
                 initial_balance = current_balance
             
             # Выводим статистику в консоль
-            print(f"[{current_time_str}] Текущий баланс: {format_number(current_balance)} USDC")
+            print(f"[{current_time_str}] Всего собрано: {format_number(current_balance)} USDC")
             print_statistics()
             
             # Отправляем статистику в Discord
